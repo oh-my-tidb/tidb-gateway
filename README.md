@@ -22,6 +22,7 @@ sequenceDiagram
     client->>tidb-gateway: connect
     tidb-gateway->>client: InitialHandshake
     client->>tidb-gateway: HandshakeResponse
+    Note over tidb-gateway: extract clusterID from DBName
     tidb-gateway->>tidb: connect
     tidb->>tidb-gateway: InitialHandshake
     tidb-gateway->>tidb: HandshakeResponse
