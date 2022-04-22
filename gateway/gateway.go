@@ -1,7 +1,6 @@
 package gateway
 
 import (
-	"encoding/json"
 	"io"
 	"net"
 	"strings"
@@ -81,6 +80,7 @@ func (g *Gateway) handleConn(rawConn net.Conn) {
 	backendAddr, err := g.getBackendAddr(res)
 	if err != nil {
 		g.log.Warnw("failed to get cluster address", "connID", connID, "err", err)
+		g.sendErr(conn, err.Error())
 		return
 	}
 
@@ -89,6 +89,7 @@ func (g *Gateway) handleConn(rawConn net.Conn) {
 	backendConn, err := g.connectBackend(backendAddr)
 	if err != nil {
 		g.log.Errorw("failed to connect backend", "connID", connID, "err", err)
+		g.sendErr(conn, err.Error())
 		return
 	}
 	defer backendConn.Close()
@@ -96,6 +97,7 @@ func (g *Gateway) handleConn(rawConn net.Conn) {
 	_, err = g.recvInitialHandshake(backendConn)
 	if err != nil {
 		g.log.Errorw("recv initial handshake from backend failed", "connID", connID, "err", err)
+		g.sendErr(conn, err.Error())
 		return
 	}
 
@@ -105,6 +107,7 @@ func (g *Gateway) handleConn(rawConn net.Conn) {
 
 	if err := backendConn.SendPacket(res); err != nil {
 		g.log.Errorw("failed to send handshake response to backend", "connID", connID, "err", err)
+		g.sendErr(conn, err.Error())
 		return
 	}
 
@@ -158,6 +161,17 @@ func (g *Gateway) recvHandshakeResponse(conn *mysql.Conn) (*mysql.HandshakeRespo
 	return &res, nil
 }
 
+func (g *Gateway) sendErr(conn *mysql.Conn, msg string) {
+	err := &mysql.Err{
+		Header:     mysql.HeaderErr,
+		Code:       mysql.ErrCodeUnknown,
+		State:      mysql.UnknownState,
+		Message:    msg,
+		Capability: mysql.DefaultCapability,
+	}
+	conn.SendPacket(err)
+}
+
 func (g *Gateway) getBackendAddr(res *mysql.HandshakeResponse) (string, error) {
 	if res.DBName == "" {
 		return "", errors.New("no db name")
@@ -172,7 +186,7 @@ func (g *Gateway) getBackendAddr(res *mysql.HandshakeResponse) (string, error) {
 
 	clusterAddr := g.conf.Find(clusterID)
 	if clusterAddr == "" {
-		return "", errors.Errorf("no cluster found for %s", clusterID)
+		return "", errors.Errorf("cluster %s is not found", clusterID)
 	}
 	return clusterAddr, nil
 }
@@ -183,9 +197,4 @@ func (g *Gateway) connectBackend(addr string) (*mysql.Conn, error) {
 		return nil, err
 	}
 	return mysql.NewConn(rawConn), nil
-}
-
-func toJson(x any) string {
-	jb, _ := json.Marshal(x)
-	return string(jb)
 }

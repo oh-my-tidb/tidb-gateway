@@ -13,6 +13,7 @@ const (
 const (
 	HeaderOK  = 0x00
 	HeaderEOF = 0xFE
+	HeaderErr = 0xFF
 )
 
 // Server information.
@@ -516,3 +517,8 @@ var CollationNames = map[string]uint8{
 	"utf8mb4_vietnamese_ci":    247,
 	"utf8mb4_0900_ai_ci":       255,
 }
+
+const (
+	ErrCodeUnknown = 1105
+	UnknownState   = "08S01"
+)
