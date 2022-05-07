@@ -3,6 +3,7 @@ package gateway
 import (
 	"io"
 	"net"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -178,16 +179,17 @@ func (g *Gateway) getBackendAddr(res *mysql.HandshakeResponse) (string, error) {
 	}
 
 	var clusterID string
-	if splits := strings.SplitN(res.DBName, ".", 2); len(splits) == 1 {
+	if splits := strings.SplitN(res.DBName, "/", 2); len(splits) == 1 {
 		clusterID, res.DBName = splits[0], ""
 	} else {
 		clusterID, res.DBName = splits[0], splits[1]
 	}
 
 	clusterAddr := g.conf.Find(clusterID)
-	if clusterAddr == "" {
-		return "", errors.Errorf("cluster %s is not found", clusterID)
+	if ok, _ := regexp.MatchString(`:\d+$`, clusterAddr); !ok {
+		clusterAddr = clusterAddr + ":4000"
 	}
+
 	return clusterAddr, nil
 }
 

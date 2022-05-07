@@ -31,5 +31,5 @@ func (b *BackendConfigs) Find(cluster string) string {
 			return c.Address
 		}
 	}
-	return ""
+	return cluster
 }

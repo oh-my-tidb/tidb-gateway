@@ -12,7 +12,7 @@ mysql 客户端可以通过 gateway 连接不同的后端 TiDB 集群。
 
 |||
 |---|---|
-|-D 12345.test|cluster-id=12345, db=test|
+|-D 12345/test|cluster-id=12345, db=test|
 |-D 12345|cluster-id=12345, db=|
 |-D test|cluster-id=test, db=|
 |不提供|不合法|
@@ -44,5 +44,5 @@ sequenceDiagram
 > mysql -uroot -h 127.0.0.1 -Dtidb1
 
 # connect tidb2 (database=test)
-> mysql -uroot -h 127.0.0.1 -Dtidb2.test
+> mysql -uroot -h 127.0.0.1 -Dtidb2/test
 ```
