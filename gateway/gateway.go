@@ -11,7 +11,6 @@ import (
 
 	"github.com/oh-my-tidb/tidb-gateway/mysql"
 	"github.com/oh-my-tidb/tidb-gateway/utility"
-	"github.com/pkg/errors"
 	"go.uber.org/zap"
 )
 
@@ -252,15 +251,11 @@ func (g *Gateway) sendErr(conn *mysql.Conn, msg string) {
 }
 
 func (g *Gateway) getBackendAddr(res *mysql.HandshakeResponse) (string, error) {
-	if res.DBName == "" {
-		return "", errors.New("no db name")
-	}
-
 	var clusterID string
-	if splits := strings.SplitN(res.DBName, "/", 2); len(splits) == 1 {
-		clusterID, res.DBName = splits[0], ""
+	if splits := strings.SplitN(res.UserName, ".", 2); len(splits) == 1 {
+		clusterID, res.UserName = splits[0], ""
 	} else {
-		clusterID, res.DBName = splits[0], splits[1]
+		clusterID, res.UserName = splits[0], splits[1]
 	}
 
 	clusterAddr := g.conf.BackendConfigs.Find(clusterID)
