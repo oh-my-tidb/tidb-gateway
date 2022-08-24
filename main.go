@@ -12,13 +12,25 @@ import (
 )
 
 var (
-	addr           string
-	backendConfigs gateway.BackendConfigs
+	addr                     string
+	tlsCA                    string
+	tlsCert                  string
+	tlsKey                   string
+	tlsVersion               string
+	backendConfigs           gateway.BackendConfigs
+	enableCompression        bool
+	backendInsecureTransport bool
 )
 
 func main() {
 	flag.StringVar(&addr, "addr", ":3306", "listening address")
+	flag.StringVar(&tlsCA, "tls-ca", "", "TLS CA file")
+	flag.StringVar(&tlsCert, "tls-cert", "", "TLS cert file")
+	flag.StringVar(&tlsKey, "tls-key", "", "TLS key file")
+	flag.StringVar(&tlsVersion, "tls-version", "", "Minimal TLS version (TLSv1.0/TLSv1.1/TLSv1.2/TLSv1.3)")
+	flag.BoolVar(&enableCompression, "compress", false, "Enable compression")
 	flag.Var(&backendConfigs, "backend", "backend cluster configs")
+	flag.BoolVar(&backendInsecureTransport, "backend-insecure-transport", false, "Using insecure connection to backend")
 	flag.Parse()
 
 	log := utility.GetLogger()
@@ -30,7 +42,23 @@ func main() {
 		return
 	}
 
-	gw := gateway.New(lis, &backendConfigs)
+	tlsConfig := gateway.TLSConfig{
+		CA:         tlsCA,
+		Cert:       tlsCert,
+		Key:        tlsKey,
+		MinVersion: tlsVersion,
+	}
+
+	gw, err := gateway.New(lis, &gateway.Config{
+		TLS:                      tlsConfig,
+		BackendConfigs:           backendConfigs,
+		EnableCompression:        enableCompression,
+		BackendInsecureTransport: backendInsecureTransport,
+	})
+	if err != nil {
+		log.Errorw("failed to create gateway", "err", err)
+		return
+	}
 	gw.StartServe()
 
 	sigs := make(chan os.Signal, 1)

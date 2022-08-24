@@ -1,5 +1,6 @@
 package mysql
 
+// Packet constants.
 const (
 	DefaultHandshakeVersion = 10
 	DefaultCollationID      = 46
@@ -10,6 +11,7 @@ const (
 		ClientConnectAttrs | ClientPluginAuth | ClientInteractive
 )
 
+// OK packet constants.
 const (
 	HeaderOK  = 0x00
 	HeaderEOF = 0xFE
@@ -65,6 +67,7 @@ const (
 
 // Auth name information.
 const (
+	AuthInvalidMethod       = "invalid_dummy_method"
 	AuthNativePassword      = "mysql_native_password" // #nosec G101
 	AuthCachingSha2Password = "caching_sha2_password" // #nosec G101
 	AuthSocket              = "auth_socket"

@@ -1,5 +1,6 @@
 package mysql
 
+// HandshakerResponse is the initial handshake response from the client.
 type HandshakeResponse struct {
 	Capability    uint32
 	MaxPacketSize uint32
@@ -11,6 +12,7 @@ type HandshakeResponse struct {
 	Attrs         map[string]string
 }
 
+// Write writes the handshake response to the buffer.
 func (s *HandshakeResponse) Write(b *Buffer) {
 	// 4              capability flags
 	b.WriteUint32(s.Capability)
@@ -94,6 +96,7 @@ func (s *HandshakeResponse) Write(b *Buffer) {
 	}
 }
 
+// Read reads the handshake response from the buffer.
 func (s *HandshakeResponse) Read(b *Buffer) error {
 	var err error
 	// 4              capability flags
@@ -150,6 +153,12 @@ func (s *HandshakeResponse) Read(b *Buffer) error {
 	if err != nil {
 		return err
 	}
+
+	// Handle SSL Connection Request.
+	if s.Capability&ClientSSL != 0 && b.Len() == 0 {
+		return nil
+	}
+
 	// string[NUL]    username
 	s.UserName, err = b.ReadStringNull()
 	if err != nil {

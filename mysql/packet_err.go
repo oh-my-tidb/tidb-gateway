@@ -1,5 +1,6 @@
 package mysql
 
+// Err represnets a MySQL packet that contains an error.
 type Err struct {
 	Header     byte
 	Code       uint16
@@ -8,6 +9,7 @@ type Err struct {
 	Capability uint32
 }
 
+// Write writes the packet to a buffer.
 func (e *Err) Write(b *Buffer) {
 	b.WriteByte(e.Header)
 	b.WriteUint16(e.Code)
@@ -18,6 +20,7 @@ func (e *Err) Write(b *Buffer) {
 	b.WriteBytes([]byte(e.Message))
 }
 
+// Read reads packet from a buffer.
 func (e *Err) Read(b *Buffer) error {
 	panic("implemented")
 }

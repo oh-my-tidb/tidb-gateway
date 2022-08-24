@@ -27,7 +27,7 @@ func TestProtocol(t *testing.T) {
 	assert.Equal(t, toJson(hs2), toJson(hs1))
 }
 
-func toJson(x any) string {
+func toJson(x interface{}) string {
 	jb, _ := json.Marshal(x)
 	return string(jb)
 }

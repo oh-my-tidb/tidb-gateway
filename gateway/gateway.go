@@ -1,7 +1,8 @@
 package gateway
 
 import (
-	"io"
+	"bytes"
+	"crypto/tls"
 	"net"
 	"regexp"
 	"strings"
@@ -17,19 +18,26 @@ import (
 type Gateway struct {
 	log          *zap.SugaredLogger
 	l            net.Listener
-	conf         *BackendConfigs
+	conf         *Config
+	tlsConf      *tls.Config
 	quit         chan struct{}
 	wg           sync.WaitGroup
 	connectionID uint32
 }
 
-func New(l net.Listener, conf *BackendConfigs) *Gateway {
-	return &Gateway{
-		log:  utility.GetLogger(),
-		conf: conf,
-		l:    l,
-		quit: make(chan struct{}),
+func New(l net.Listener, conf *Config) (*Gateway, error) {
+	tlsConfig, err := loadTLSConfig(conf.TLS.CA, conf.TLS.Cert, conf.TLS.Key, conf.TLS.MinVersion)
+	if err != nil {
+		return nil, err
 	}
+
+	return &Gateway{
+		log:     utility.GetLogger(),
+		conf:    conf,
+		tlsConf: tlsConfig,
+		l:       l,
+		quit:    make(chan struct{}),
+	}, nil
 }
 
 func (g *Gateway) Stop() {
@@ -78,6 +86,22 @@ func (g *Gateway) handleConn(rawConn net.Conn) {
 		return
 	}
 
+	if res.Capability&mysql.ClientSSL != 0 {
+		tlsConn := tls.Server(rawConn, g.tlsConf)
+		if err := tlsConn.Handshake(); err != nil {
+			g.log.Warnw("failed to upgrade to tls connection", "err", err)
+			return
+		}
+		conn.SetRawConn(tlsConn)
+		res, err = g.recvHandshakeResponse(conn)
+		if err != nil {
+			g.log.Warnw("failed to recv handshake response", "err", err)
+			return
+		}
+	}
+
+	enableCompress := res.Capability&mysql.ClientCompress != 0
+
 	backendAddr, err := g.getBackendAddr(res)
 	if err != nil {
 		g.log.Warnw("failed to get cluster address", "connID", connID, "err", err)
@@ -106,28 +130,53 @@ func (g *Gateway) handleConn(rawConn net.Conn) {
 	// Simply redirect remote's response to backend.
 	// Hopefully they can come to a consensus.
 
+	// Always connect backend without compression.
+	// TiDB allows it even if it has compression enabled.
+	res.Capability &= ^mysql.ClientCompress
+
+	if g.conf.BackendInsecureTransport {
+		res.Capability &= ^mysql.ClientSecureConnection
+	}
+
+	// Change auth plugin to a invalid name that backend does not know.
+	// Backend will send a SwitchMethod to complete auth process.
+	res.Capability |= mysql.ClientPluginAuth
+	res.AuthPlugin = mysql.AuthInvalidMethod
+
 	if err := backendConn.SendPacket(res); err != nil {
 		g.log.Errorw("failed to send handshake response to backend", "connID", connID, "err", err)
 		g.sendErr(conn, err.Error())
 		return
 	}
 
+	if res.Capability&mysql.ClientSSL != 0 {
+		tlsConn := tls.Client(backendConn.RawConn(), &tls.Config{InsecureSkipVerify: true}) // nolint: gosec // nolint
+		if err = tlsConn.Handshake(); err != nil {
+			g.log.Errorw("failed to upgrade to tls connection with backend", "err", err)
+			g.sendErr(conn, err.Error())
+			return
+		}
+		backendConn.SetRawConn(tlsConn)
+		if err := backendConn.SendPacket(res); err != nil {
+			g.log.Errorw("failed to send handshake response to backend", "err", err)
+			g.sendErr(conn, err.Error())
+			return
+		}
+	}
+
+	err = g.exchangeAuth(conn, backendConn)
+	if err != nil {
+		g.log.Errorw("failed to exchanage auth", "err", err)
+		return
+	}
+
 	g.log.Infow("start to relay data", "connID", connID, "backend", backendAddr)
 
-	quit := make(chan struct{}, 1)
-	go func() {
-		_, err := io.Copy(conn.RawConn(), backendConn.RawConn())
-		g.log.Warnw("remote -> backend closed", "connID", connID, "err", err)
-		quit <- struct{}{}
-	}()
-	go func() {
-		_, err := io.Copy(backendConn.RawConn(), conn.RawConn())
-		g.log.Warnw("backend -> remote closed", "connID", connID, "err", err)
-		quit <- struct{}{}
-	}()
-	select {
-	case <-quit:
-	case <-g.quit:
+	if enableCompress {
+		conn.EnableCompression()
+		err = RelayPackets(conn, backendConn, g.quit)
+	} else {
+		err = RelayRawBytes(conn, backendConn, g.quit)
 	}
 	g.log.Infow("connection is closed", "connID", connID)
 }
@@ -162,6 +211,35 @@ func (g *Gateway) recvHandshakeResponse(conn *mysql.Conn) (*mysql.HandshakeRespo
 	return &res, nil
 }
 
+func copyPacket(dst, src *mysql.Conn) ([]byte, error) {
+	var b bytes.Buffer
+	err := src.ReadPacket(&b)
+	if err != nil {
+		return nil, err
+	}
+	err = dst.WritePacket(b.Bytes())
+	if err != nil {
+		return b.Bytes(), err
+	}
+	return b.Bytes(), dst.Flush()
+}
+
+func (g *Gateway) exchangeAuth(clientConn, backendConn *mysql.Conn) error {
+	for {
+		data, err := copyPacket(clientConn, backendConn)
+		if err != nil {
+			return err
+		}
+		if len(data) > 0 && (data[0] == mysql.HeaderOK || data[0] == mysql.HeaderErr) {
+			return nil
+		}
+		_, err = copyPacket(backendConn, clientConn)
+		if err != nil {
+			return err
+		}
+	}
+}
+
 func (g *Gateway) sendErr(conn *mysql.Conn, msg string) {
 	err := &mysql.Err{
 		Header:     mysql.HeaderErr,
@@ -185,7 +263,7 @@ func (g *Gateway) getBackendAddr(res *mysql.HandshakeResponse) (string, error) {
 		clusterID, res.DBName = splits[0], splits[1]
 	}
 
-	clusterAddr := g.conf.Find(clusterID)
+	clusterAddr := g.conf.BackendConfigs.Find(clusterID)
 	if ok, _ := regexp.MatchString(`:\d+$`, clusterAddr); !ok {
 		clusterAddr = clusterAddr + ":4000"
 	}

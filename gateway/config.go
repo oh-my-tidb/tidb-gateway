@@ -33,3 +33,19 @@ func (b *BackendConfigs) Find(cluster string) string {
 	}
 	return cluster
 }
+
+// TLSConfig is used to establish TLS connection.
+type TLSConfig struct {
+	CA         string
+	Cert       string
+	Key        string
+	MinVersion string
+}
+
+// Config is used to configure a gateway.
+type Config struct {
+	TLS                      TLSConfig
+	BackendConfigs           BackendConfigs
+	EnableCompression        bool
+	BackendInsecureTransport bool
+}

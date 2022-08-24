@@ -2,6 +2,7 @@ package mysql
 
 import "github.com/pkg/errors"
 
+// Handshake is the initial handshake packet sent from server to client.
 type Handshake struct {
 	ProtocolVersion uint8
 	ServerVersion   string
@@ -13,6 +14,7 @@ type Handshake struct {
 	AuthPluginName  string
 }
 
+// Write writes the packet to a buffer.
 func (s *Handshake) Write(b *Buffer) {
 	// 1              [0a] protocol version
 	b.WriteByte(s.ProtocolVersion)
@@ -38,7 +40,7 @@ func (s *Handshake) Write(b *Buffer) {
 	// 	    1              [00]
 	// 	}
 	if s.Capability&ClientPluginAuth != 0 {
-		b.WriteByte(byte(len(s.AuthPluginData)))
+		b.WriteByte(byte(len(s.AuthPluginData) + 1))
 	} else {
 		b.WriteByte(0x00)
 	}
@@ -60,6 +62,7 @@ func (s *Handshake) Write(b *Buffer) {
 	}
 }
 
+// Read reads the packet from a buffer.
 // Support V9 or V10.
 func (s *Handshake) Read(b *Buffer) error {
 	var err error
@@ -156,7 +159,7 @@ func (s *Handshake) Read(b *Buffer) error {
 	//   if capabilities & CLIENT_SECURE_CONNECTION {
 	//     string[$len]   auth-plugin-data-part-2 ($len=MAX(13, length of auth-plugin-data - 8))
 	if s.Capability&ClientSecureConnection != 0 {
-		l := int(authDataLen) - 8
+		l := int(authDataLen) - 8 - 1
 		data, err = b.ReadBytes(l)
 		if err != nil {
 			return err
